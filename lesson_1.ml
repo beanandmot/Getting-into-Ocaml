@@ -108,7 +108,36 @@ let add_one n = n + 1
 
   When things get more complex:
 
-  let add (a : int) (b : int) : int = a + b
+  let add (a : int) (b : int) : int = a + b 
+  (These a and b are the placeplaceholder values in the add function we just made.
+  
+  For example, these are some equivatelents in other languages =>
+
+  Python equivalent:
+
+  def add(a, b):
+      return a + b
+  result = add(2, 3)
+  print(result)
+
+  C++ equivalent:
+
+  int add(int a, int b) {
+      return a + b;
+  }
+  int result = add(2, 3);
+  std::cout << result << std::endl;
+
+  Go equivalent:
+
+  func add(a int, b int) int {
+      return a + b
+  }
+  result := add(2, 3)
+  fmt.Println(result)
+  
+  
+  )
 
   But for now:
   → you usually DON'T need to write types
