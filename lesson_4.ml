@@ -237,6 +237,187 @@ let () =
   Printf.printf "sum [1;2;3] = %d\n" (sum [1;2;3]);
   Printf.printf "sum [] = %d\n" (sum [])
 
+(*
+  ============================================================
+  NORMAL vs TAIL RECURSION — SIDE BY SIDE
+  ============================================================
+ 
+  We will use the simplest possible example: summing a list.
+  Same goal, two different approaches, very different memory behavior.
+*)
+ 
+ 
+(* ── NORMAL RECURSION ─────────────────────────────────── *)
+ 
+let rec sum_normal lst =
+  match lst with
+  | []      -> 0
+  | x :: xs -> x + sum_normal xs
+ 
+(*
+  Read the recursive case as:
+      "split the list into x (head) and xs (tail),
+       then add x to whatever sum_normal returns for xs"
+ 
+  The problem: OCaml cannot compute (x + ???) until
+  sum_normal xs finishes and returns.
+  So each frame must STAY on the stack and wait.
+ 
+  TRACE for sum_normal [1; 2; 3]:
+ 
+    call:  sum_normal [1;2;3]
+           → 1 + sum_normal [2;3]        ← frame 1 WAITING
+                  2 + sum_normal [3]     ← frame 2 WAITING
+                         3 + sum_normal []  ← frame 3 WAITING
+                                0           ← base case, returns
+ 
+    unwind (bottom to top):
+           frame 3:  3 + 0 = 3  returns
+           frame 2:  2 + 3 = 5  returns
+           frame 1:  1 + 5 = 6  returns
+ 
+    result: 6
+ 
+  STACK at deepest point (all 4 frames alive at once):
+ 
+    ┌─────────────────────────┐  ← top of stack
+    │ frame 4: sum_normal []  │
+    ├─────────────────────────┤
+    │ frame 3: sum_normal [3] │  waiting on: 3 + ???
+    ├─────────────────────────┤
+    │ frame 2: sum_normal [2;3]│  waiting on: 2 + ???
+    ├─────────────────────────┤
+    │ frame 1: sum_normal [1;2;3]│ waiting on: 1 + ???
+    └─────────────────────────┘  ← bottom of stack
+ 
+  For a list of 1,000,000 elements → 1,000,000 frames
+  → Stack_overflow ❌
+*)
+ 
+ 
+(* ── TAIL RECURSION ───────────────────────────────────── *)
+ 
+let rec sum_tail lst acc =
+  match lst with
+  | []      -> acc
+  | x :: xs -> sum_tail xs (acc + x)
+ 
+(*
+  Read the recursive case as:
+      "split the list into x (head) and xs (tail),
+       compute acc + x RIGHT NOW,
+       then call sum_tail with xs and the new acc"
+ 
+  The key: (acc + x) is computed BEFORE the recursive call.
+  There is NO pending work after the call.
+  OCaml reuses the same stack frame every time.
+ 
+  TRACE for sum_tail [1; 2; 3] 0:
+ 
+    call:  sum_tail [1;2;3] 0
+           sum_tail [2;3]   1     ← acc = 0+1
+           sum_tail [3]     3     ← acc = 1+2
+           sum_tail []      6     ← acc = 3+3
+           base case: return 6    ← acc returned directly
+ 
+  STACK the whole time (only ever 1 frame):
+ 
+    ┌─────────────────────────┐
+    │ frame (reused):         │  acc travels FORWARD
+    │ sum_tail ... ...        │  no waiting, no pileup
+    └─────────────────────────┘
+ 
+  For a list of 1,000,000 elements → still just 1 frame
+  → No overflow 
+ 
+  DIFFERENCE IN ONE LINE:
+ 
+  Normal:  addition is AFTER the recursive call   → pending work → frames pile up
+  Tail:    addition is BEFORE the recursive call  → no pending work → frame reused
+ 
+  ─────────────────────────────────────────────────────────
+  POSITION OF EACH PART IN THE PATTERN
+  ─────────────────────────────────────────────────────────
+ 
+  | x :: xs -> sum_tail xs (acc + x)
+    ↑    ↑               ↑   ↑
+    │    │               │   └── new accumulator (computed NOW, passed forward)
+    │    │               └────── the rest of the list (tail)
+    │    └────────────────────── xs: everything after the first element
+    └─────────────────────────── x: the first element (head)
+ 
+  | x :: xs -> x + sum_normal xs
+    ↑    ↑     ↑               ↑
+    │    │     │               └── xs: rest of list, called recursively
+    │    │     └────────────────── x sits here WAITING until xs is done
+    │    └────────────────────────── xs: rest of list
+    └─────────────────────────────── x: head
+ 
+  The only structural difference:
+    - Normal:  x is OUTSIDE the recursive call (waiting)
+    - Tail:    acc+x is INSIDE the recursive call (done immediately)
+*)
+ 
+(* Clean wrapper so callers don't pass 0 manually *)
+let sum lst = sum_tail lst 0
+ 
+let () =
+  Printf.printf "sum_normal [1;2;3] = %d\n" (sum_normal [1;2;3]);
+  Printf.printf "sum        [1;2;3] = %d\n" (sum [1;2;3])
+ 
+ 
+(*
+  ── ANOTHER EXAMPLE: counting elements ───────────────────
+ 
+  Same pattern, different operation.
+  Accumulator counts instead of adds.
+*)
+ 
+(* Normal version *)
+let rec length_normal lst =
+  match lst with
+  | []      -> 0
+  | _ :: xs -> 1 + length_normal xs
+ 
+(*
+  TRACE: length_normal [10; 20; 30]
+ 
+    1 + length_normal [20;30]    ← waiting
+        1 + length_normal [30]   ← waiting
+            1 + length_normal [] ← waiting
+                0                ← base case
+ 
+  unwind: 1+0=1, 1+1=2, 1+2=3
+  result: 3
+*)
+ 
+(* Tail version *)
+let rec length_tail lst acc =
+  match lst with
+  | []      -> acc
+  | _ :: xs -> length_tail xs (acc + 1)
+ 
+(*
+  TRACE: length_tail [10; 20; 30] 0
+ 
+    length_tail [20;30] 1   ← acc = 0+1
+    length_tail [30]    2   ← acc = 1+1
+    length_tail []      3   ← acc = 2+1
+    return 3
+ 
+  The _ in (_ :: xs) means:
+      "I know there is a head element, but I don't need its value.
+       I only care that the list is non-empty."
+*)
+ 
+let length lst = length_tail lst 0
+ 
+let () =
+  Printf.printf "length_normal [10;20;30] = %d\n" (length_normal [10;20;30]);
+  Printf.printf "length        [10;20;30] = %d\n" (length [10;20;30])
+ 
+ 
+
 
 (*
   =========================
@@ -606,6 +787,130 @@ let () =
   OCaml: impossible to forget. The type won't allow it. ✅
 *)
 
+(*
+  ============================================================
+  Some AND None — DEEPER EXPLANATION
+  ============================================================
+ 
+  The option type is defined in OCaml's standard library as:
+ 
+      type 'a option =
+        | None
+        | Some of 'a
+ 
+  'a is a TYPE VARIABLE — a placeholder for any concrete type.
+  When you write Some 5, OCaml fills in 'a = int.
+  When you write Some "hello", OCaml fills in 'a = string.
+  You never write 'a yourself when using it — OCaml infers it.
+ 
+  Think of Some as a LABELLED BOX:
+ 
+      Some 5         →   ┌─────────┐
+                         │  5      │  labelled "Some", contains int
+                         └─────────┘
+ 
+      Some "hello"   →   ┌─────────┐
+                         │ "hello" │  labelled "Some", contains string
+                         └─────────┘
+ 
+      None           →   ∅  (empty, no box, no value)
+ 
+  Your Python __init__ comparison:
+      Close, but not quite.
+      __init__ is about initializing an object with mutable state.
+      Some is simpler — it is just a TAG + a VALUE, no mutation,
+      no methods, no object. It is a labelled container, read-only.
+ 
+  The closest Python comparison is actually a tagged tuple:
+      Some 5     ≈    ("Some", 5)
+      None       ≈    ("None",)
+  Except OCaml enforces the type at compile time and Python does not.
+*)
+ 
+(*
+  ── EXAMPLES: option with different types ─────────────────
+*)
+ 
+(* Returns the first element, or None if list is empty *)
+let first lst =
+  match lst with
+  | []     -> None
+  | x :: _ -> Some x
+ 
+(*
+  first [10; 20; 30]  → Some 10   (type: int option)
+  first []            → None      (type: int option, but empty)
+  first ["a"; "b"]    → Some "a"  (type: string option)
+ 
+  Same function works for any list type.
+  'a gets filled in by whatever list you pass.
+*)
+ 
+let () =
+  (match first [10; 20; 30] with
+  | None   -> print_endline "empty list"
+  | Some v -> Printf.printf "first element: %d\n" v);
+ 
+  (match first ([] : int list) with
+  | None   -> print_endline "empty list"
+  | Some v -> Printf.printf "first element: %d\n" v)
+ 
+(*
+  WHY YOU MUST MATCH (cannot just "use" the value):
+ 
+  If safe_divide returns an int option,
+  and you try to use it as a plain int:
+ 
+      let result = safe_divide 10 2  (* result : int option *)
+      let doubled = result * 2       (* ❌ type error *)
+ 
+  OCaml refuses because result might be None,
+  and you cannot multiply None by 2.
+ 
+  You MUST unwrap it first:
+ 
+      match safe_divide 10 2 with
+      | None   -> 0
+      | Some v -> v * 2   (* ✅ v is a plain int here *)
+ 
+  This is the entire point of option:
+  it makes the possibility of "no value" VISIBLE in the type,
+  so you cannot ignore it by accident.
+ 
+  Python equivalent (no enforcement):
+      result = safe_divide(10, 2)   # might be None
+      doubled = result * 2          # crashes at runtime if None ❌
+*)
+ 
+ 
+(*
+  ── CHAINING option WITH A HELPER ─────────────────────────
+ 
+  A common pattern: transform the value inside Some,
+  leave None alone.
+*)
+ 
+let map_option f opt =
+  match opt with
+  | None   -> None
+  | Some v -> Some (f v)
+ 
+(*
+  map_option (fun x -> x * 2) (Some 5)   → Some 10
+  map_option (fun x -> x * 2) None       → None
+ 
+  You don't need to write this yourself —
+  OCaml's standard library has Option.map which does exactly this.
+  But seeing it written out shows you it is just a match.
+*)
+ 
+let () =
+  let doubled = map_option (fun x -> x * 2) (Some 5) in
+  (match doubled with
+  | None   -> print_endline "nothing"
+  | Some v -> Printf.printf "doubled: %d\n" v)
+ 
+
 
 (*
   =========================
@@ -717,6 +1022,117 @@ let () =
 
 
 (*
+  ============================================================
+  SECTION C: Cons AND RECURSIVE TYPES — DEEPER
+  ============================================================
+ 
+  Recall the definition:
+ 
+      type 'a my_list =
+        | Empty
+        | Cons of 'a * 'a my_list
+                  ↑    ↑
+                  │    └── the REST of the list (same type, recursive)
+                  └──────── the VALUE at this position
+ 
+  WHY IS THIS RECURSIVE?
+ 
+  Cons carries two things:
+    1. A value of type 'a         (the current element)
+    2. A value of type 'a my_list (the rest — which is ALSO a my_list)
+ 
+  So every Cons node points to another my_list.
+  That other my_list is either another Cons, or Empty.
+  Empty is the stopper — it breaks the chain.
+ 
+  BUILDING [1; 2; 3] step by step:
+ 
+    Step 1: start with Empty
+            Empty
+ 
+    Step 2: prepend 3
+            Cons (3, Empty)
+ 
+    Step 3: prepend 2
+            Cons (2, Cons (3, Empty))
+ 
+    Step 4: prepend 1
+            Cons (1, Cons (2, Cons (3, Empty)))
+ 
+  MEMORY LAYOUT (conceptual):
+ 
+    Cons(1, ──►  Cons(2, ──►  Cons(3, ──►  Empty)
+      │              │              │
+      value=1        value=2        value=3
+ 
+  Each Cons node is a small block on the HEAP containing:
+    - the value
+    - a pointer to the next node
+ 
+  WHY "Cons"?
+ 
+  It is short for "construct" — from Lisp (1958).
+  In Lisp, the function to build a list node was called cons.
+  OCaml inherits this tradition.
+  OCaml's built-in :: operator IS cons, just with nicer syntax:
+ 
+      1 :: [2; 3]              ← built-in syntax
+      Cons (1, Cons (2, ...))  ← what it means internally
+ 
+  They are the same structure.
+ 
+  ── RECURSION ON Cons mirrors the structure ──────────────
+ 
+  Because the type is recursive, the function is recursive too.
+  Each Cons case handles one node, then recurses on the tail.
+*)
+ 
+type 'a my_list =
+  | Empty
+  | Cons of 'a * 'a my_list
+ 
+(* Sum a my_list of ints *)
+let rec my_sum lst =
+  match lst with
+  | Empty        -> 0
+  | Cons (x, xs) -> x + my_sum xs
+ 
+(*
+  Pattern: Cons (x, xs)
+    x  = the value in this node  (an int)
+    xs = the rest of the list    (a my_list)
+ 
+  This mirrors the structure exactly:
+    Cons carries (value, rest)  →  pattern extracts (x, xs)
+ 
+  TRACE: my_sum (Cons(1, Cons(2, Cons(3, Empty))))
+ 
+    Cons(1, rest) → 1 + my_sum (Cons(2, Cons(3, Empty)))
+    Cons(2, rest) → 2 + my_sum (Cons(3, Empty))
+    Cons(3, rest) → 3 + my_sum Empty
+    Empty         → 0
+ 
+    unwind: 3+0=3, 2+3=5, 1+5=6
+    result: 6
+*)
+ 
+(* Tail-recursive version of my_sum *)
+let rec my_sum_tail lst acc =
+  match lst with
+  | Empty        -> acc
+  | Cons (x, xs) -> my_sum_tail xs (acc + x)
+ 
+let my_sum_clean lst = my_sum_tail lst 0
+ 
+let my_numbers = Cons (1, Cons (2, Cons (3, Empty)))
+ 
+let () =
+  Printf.printf "my_sum       = %d\n" (my_sum my_numbers);
+  Printf.printf "my_sum_clean = %d\n" (my_sum_clean my_numbers)
+ 
+ 
+
+(*
   =========================
   TRICKY EXAMPLE: OPTION + RECURSION
   =========================
@@ -763,6 +1179,123 @@ let () =
   RESULT: Some 4
 *)
 
+*
+  ============================================================
+  SECTION D: find_first — FULL WALKTHROUGH
+  ============================================================
+ 
+  Goal: find the first element in a list that satisfies
+  some condition. Return Some element or None.
+ 
+  The function takes a PREDICATE — a function that returns bool.
+  This is called a HIGHER-ORDER FUNCTION:
+  a function that takes another function as an argument.
+*)
+ 
+let rec find_first pred lst =
+  match lst with
+  | []      -> None
+  | x :: xs ->
+      if pred x then Some x
+      else find_first pred xs
+ 
+(*
+  PARTS EXPLAINED:
+ 
+  pred
+    - a function passed in as an argument
+    - type: 'a -> bool  (takes a value, returns true or false)
+    - you supply the rule, find_first does the searching
+ 
+  if pred x then Some x
+    - call pred with the current head element x
+    - if pred returns true: wrap x in Some and return immediately
+    - we found what we were looking for, stop recursing
+ 
+  else find_first pred xs
+    - pred returned false: x does not match
+    - recurse on xs (the rest of the list)
+    - NOTE: pred is passed forward unchanged — same rule applies
+ 
+  []  → None
+    - reached the end, nothing matched, return None
+ 
+  ── EXAMPLE 1: find first even number ─────────────────────
+ 
+  find_first (fun x -> x mod 2 = 0) [1; 3; 4; 7; 8]
+ 
+  The predicate:  (fun x -> x mod 2 = 0)
+  Read as: "given x, return true if x is even"
+ 
+  TRACE:
+    x=1:  pred 1  →  1 mod 2 = 1  ≠ 0  →  false  →  recurse [3;4;7;8]
+    x=3:  pred 3  →  3 mod 2 = 1  ≠ 0  →  false  →  recurse [4;7;8]
+    x=4:  pred 4  →  4 mod 2 = 0  = 0  →  true   →  return Some 4
+ 
+  Result: Some 4  ✅
+ 
+  ── EXAMPLE 2: find first number > 100 ────────────────────
+ 
+  find_first (fun x -> x > 100) [1; 3; 4; 7; 8]
+ 
+  TRACE:
+    x=1:  pred 1  →  1 > 100   →  false  →  recurse
+    x=3:  pred 3  →  3 > 100   →  false  →  recurse
+    x=4:  pred 4  →  4 > 100   →  false  →  recurse
+    x=7:  pred 7  →  7 > 100   →  false  →  recurse
+    x=8:  pred 8  →  8 > 100   →  false  →  recurse
+    []:   base case             →  None
+ 
+  Result: None  ✅
+ 
+  ── EXAMPLE 3: find first string starting with "b" ────────
+ 
+  Predicates work on ANY type, not just ints.
+*)
+ 
+let () =
+  let words = ["apple"; "banana"; "cherry"; "blueberry"] in
+  (match find_first (fun w -> w.[0] = 'b') words with
+  | None   -> print_endline "no word starting with b"
+  | Some w -> Printf.printf "first b-word: %s\n" w)
+ 
+(*
+  w.[0] means: get the first character of string w
+  = 'b'  checks if it equals the character 'b'
+ 
+  TRACE:
+    w="apple":     'a' = 'b'  →  false  →  recurse
+    w="banana":    'b' = 'b'  →  true   →  return Some "banana"
+ 
+  Result: Some "banana"
+ 
+  ── WHY HIGHER-ORDER FUNCTIONS MATTER ─────────────────────
+ 
+  Without higher-order functions, you would need to write:
+ 
+      find_first_even
+      find_first_greater_than_100
+      find_first_starting_with_b
+      ...
+ 
+  One function for every possible condition.
+ 
+  With higher-order functions, you write find_first ONCE
+  and pass in whatever condition you need.
+  The condition is just data — a function is a value like any other.
+ 
+  This is a core idea in functional programming.
+*)
+ 
+let () =
+  let nums = [1; 3; 4; 7; 8] in
+  (match find_first (fun x -> x mod 2 = 0) nums with
+  | None   -> print_endline "no even number"
+  | Some v -> Printf.printf "first even: %d\n" v);
+ 
+  (match find_first (fun x -> x > 100) nums with
+  | None   -> print_endline "no number > 100"
+  | Some v -> Printf.printf "found: %d\n" v)
 
 (*
   =========================
