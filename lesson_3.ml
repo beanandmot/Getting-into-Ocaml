@@ -916,13 +916,6 @@ let () =
   Code:
 *)
 
-(*
-  =========================
-  TRICKY EXAMPLE
-  =========================
-
-  What do you THINK this returns?
-*)
 
 let rec tricky lst =
   match lst with
@@ -1104,26 +1097,145 @@ let () =
 
 (*
   =========================
-  FILTERING LISTS
+  FILTER EVEN 
   =========================
+
+  Goal:
+      Keep only EVEN numbers from a list
+
+  Input:
+      [1;2;3;4;5;6]
+
+  Expected Output:
+      [2;4;6]
+
+  ---------------------------------
+  CODE
+  ---------------------------------
 *)
 
 let rec filter_even lst =
   match lst with
-  | [] -> []
+  | [] ->
+      (*
+        BASE CASE:
+        Empty list → nothing to filter
+        Return empty list
+      *)
+      []
+
   | x :: xs ->
+      (*
+        BREAK STRUCTURE:
+
+        x  = first element
+        xs = rest of list
+
+        Example:
+            [1;2;3;4]
+
+        becomes:
+            x  = 1
+            xs = [2;3;4]
+      *)
+
       if x mod 2 = 0 then
+        (*
+          CASE: x is EVEN
+
+          We KEEP it.
+
+          IMPORTANT:
+          We DO NOT mutate list.
+
+          We CREATE a NEW list node:
+
+              x :: (result of recursion)
+
+          So this builds the result list.
+        *)
         x :: filter_even xs
+
       else
+        (*
+          CASE: x is ODD
+
+          We SKIP it.
+
+          Just return recursion result.
+        *)
         filter_even xs
+
+(*
+  ---------------------------------
+  STEP-BY-STEP EXECUTION TRACE
+  ---------------------------------
+
+  filter_even [1;2;3;4;5;6]
+
+  STEP 1:
+      x = 1 (odd)
+      → skip
+      → filter_even [2;3;4;5;6]
+
+  STEP 2:
+      x = 2 (even)
+      → keep
+      → 2 :: filter_even [3;4;5;6]
+
+  STEP 3:
+      x = 3 (odd)
+      → skip
+      → filter_even [4;5;6]
+
+  STEP 4:
+      x = 4 (even)
+      → keep
+      → 4 :: filter_even [5;6]
+
+  STEP 5:
+      x = 5 (odd)
+      → skip
+      → filter_even [6]
+
+  STEP 6:
+      x = 6 (even)
+      → keep
+      → 6 :: filter_even []
+
+  STEP 7:
+      [] → return []
+
+  ---------------------------------
+  BUILDING BACK (IMPORTANT)
+  ---------------------------------
+
+      filter_even [] = []
+
+      filter_even [6] = 6 :: [] = [6]
+
+      filter_even [5;6] = [6]
+
+      filter_even [4;5;6] = 4 :: [6] = [4;6]
+
+      filter_even [3;4;5;6] = [4;6]
+
+      filter_even [2;3;4;5;6] = 2 :: [4;6] = [2;4;6]
+
+      filter_even [1;2;3;4;5;6] = [2;4;6]
+*)
 
 let () =
   let result = filter_even [1;2;3;4;5;6] in
+
+  (*
+    Print result:
+  *)
+  print_endline "Filtered even numbers:";
+
   List.iter (fun x -> Printf.printf "%d " x) result;
+
   print_newline ()
-
-
-
 
 (*
   =========================
