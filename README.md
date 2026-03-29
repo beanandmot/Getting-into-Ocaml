@@ -1,3 +1,3 @@
 # Getting-into-Ocaml
 
-# Online compiler: https://ocaml.org/play
+Online compiler: https://ocaml.org/play
